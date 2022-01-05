@@ -1,0 +1,564 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+```{r}
+library(keras)
+```
+
+###un auonencodeur simple 
+```{r}
+input_size = 100
+latent_size = 10
+enc_input = layer_input(shape = input_size,name = "Input_layer")
+enc_output = enc_input %>% 
+  layer_dense(units=50, activation = "linear",name = "dense_layer1") %>% 
+  layer_dense(units=latent_size,name="dense_layer_latente") 
+
+encoder = keras_model(enc_input, enc_output)
+summary(encoder)
+```
+
+
+```{r}
+dec_input = layer_input(shape = latent_size)
+dec_output = dec_input %>% 
+  layer_dense(units=50, activation = "linear") %>% 
+  
+  layer_dense(units = input_size, activation = "relu") 
+
+decoder = keras_model(dec_input, dec_output)
+ 
+summary(decoder)
+```
+
+
+```{r}
+aen_input = layer_input(shape =c(input_size))
+aen_output = aen_input %>% 
+  encoder() %>% 
+  decoder()
+   
+aen = keras_model(aen_input, aen_output)
+summary(aen)
+
+```
+
+```{r}
+aen %>% compile(optimizer="adam", loss="mse")
+```
+
+
+```{r}
+#processing data 
+# Simulation U(n,k) et V(k,m) vérifiant X(n,m)
+
+n = 100
+m = 5000
+seuil = 200
+k  =10
+replace_zeros = function(M, p){
+  n = dim(M)
+  zeros = 0
+
+  for (i in 1:n[1]){
+    for (j in 1:n[2]){
+      if (runif(1) > p){
+        M[i,j] = 10**(-12)
+      }
+    }
+  }
+  return(M)
+}
+
+
+Simul_U = function(k,seuil=10) {
+  U <-matrix(seuil*runif(n*k), nrow = n, ncol = k)
+  return(U)
+}
+
+
+Simul_V = function(k,seuil=10) {
+  V <- seuil*matrix(seuil*runif(m*k), nrow = k, ncol = m)
+  return(V)
+}
+
+
+Simul_data = function(k,seuil=10,p = 1){
+  U = Simul_U(k,seuil)
+  V = Simul_V(k,seuil)
+  U = replace_zeros(U, p)
+  V = replace_zeros(V, p)
+
+  Lambda = U%*%V
+  means_vect = as.vector(Lambda)
+  tmp = matrix(rpois(n*m, means_vect),n ,m)
+  return (tmp )
+}
+
+X_data = Simul_data(10,200)#k et seuil 10,10
+#X_data
+maxi = max(X_data)
+
+if (maxi == 0){
+  maxi = 1
+}
+
+X_train = t(X_data[,1:450])/maxi
+#y_train = t(X_data[1:60,1:450])
+X_val = t(X_data[,451:500])/maxi
+#y_val = t(X_data[1:60,451:500])
+```
+
+
+
+
+```{r}
+aen %>% fit(X_train,X_train, epochs=40, batch_size=50, validation_data = list(X_val, X_val))
+ 
+```
+
+```{r}
+dim(X_train)
+```
+
+
+
+```{r}
+
+x_test = t(X_train[12,])
+#x_test = t(X[,2])
+encoded_test = encoder %>% predict(x_test)
+```
+
+
+```{r}
+
+decode = decoder%>% predict(encoded_test)
+```
+
+```{r}
+plot(decode,x_test)
+```
+
+
+
+```{r}
+construct2 =  function(M){
+  #il encode et decode apres tous les colonees de la matrice M (argument)
+  mat = matrix(0,nrow = nrow(M),ncol = ncol(M))
+  for (i in 1:ncol(M)){
+    col_test = c(M[,i])
+    encoded_t = encoder %>% predict(t(col_test))
+    
+    decode = decoder%>%predict(encoded_t)
+    mat[,i] = decode
+    
+  }
+  return (mat)
+}
+```
+
+
+
+
+#autoencodeur Variationel 
+
+
+
+```{r}
+#processing data 
+# Simulation U(n,k) et V(k,m) vérifiant X(n,m)
+
+n = 100
+m = 5000
+seuil = 1
+k  =10
+replace_zeros = function(M, p){
+  n = dim(M)
+  zeros = 0
+
+  for (i in 1:n[1]){
+    for (j in 1:n[2]){
+      if (runif(1) > p){
+        M[i,j] = 10**(-12)
+      }
+    }
+  }
+  return(M)
+}
+
+
+Simul_U = function(k,seuil=10) {
+  U <-matrix(seuil*runif(n*k), nrow = n, ncol = k)
+  return(U)
+}
+
+
+Simul_V = function(k,seuil=10) {
+  V <- seuil*matrix(seuil*runif(m*k), nrow = k, ncol = m)
+  return(V)
+}
+
+
+Simul_data = function(k,seuil=10,p = 1){
+  U = Simul_U(k,seuil)
+  V = Simul_V(k,seuil)
+  U = replace_zeros(U, p)
+  V = replace_zeros(V, p)
+
+  Lambda = U%*%V
+  means_vect = as.vector(Lambda)
+  tmp = matrix(rpois(n*m, means_vect),n ,m)
+  return (tmp )
+}
+
+X_data = Simul_data(10,70)#k et seuil 10,10
+#X_data
+maxi = max(X_data)
+
+if (maxi == 0){
+  maxi = 1
+}
+
+X_train = t(X_data[,1:450])/maxi
+#y_train = t(X_data[1:60,1:450])
+X_val = t(X_data[,451:500])/maxi
+#y_val = t(X_data[1:60,451:500])
+
+```
+
+
+
+
+```{r}
+if (tensorflow::tf$executing_eagerly())
+  tensorflow::tf$compat$v1$disable_eager_execution()
+
+library(keras)
+K <- keras::backend()
+
+#initialisation des  Parameters 
+
+batch_size <- 40
+original_dim <- 100
+latent_dim <- 10
+intermediate_dim <- 50
+epochs <- 50
+
+```
+
+
+
+
+
+```{r}
+input_enc <- layer_input(shape = c(original_dim),name ="input_layer")
+h <- layer_dense(input_enc, intermediate_dim,name = "intermediat_layer_encoder")
+leaky <- layer_activation_leaky_relu(
+  h,alpha = 0.3)
+drop <- layer_dropout(leaky,0.25)
+
+z_mean <- layer_dense(drop, latent_dim,name="mean_layer")
+z_log_var <- layer_dense(drop, latent_dim,name="log_var_layer")
+
+sampling <- function(M){
+  z_mean <- M[, 1:(latent_dim)]
+  z_log_var <- M[, (latent_dim + 1):(2 * latent_dim)]
+
+  epsilon <- k_random_normal(
+    shape = c(k_shape(z_mean)[[1]]),
+    mean=0.,
+    stddev=1.0
+  )
+
+  z_mean + k_exp(z_log_var/2)*epsilon
+}
+
+
+z <- layer_concatenate(list(z_mean, z_log_var)) %>%
+  layer_lambda(sampling)
+
+
+encoder <- keras_model(input_enc,layer_concatenate(list(z_mean, z_log_var)))
+summary(encoder)
+```
+
+
+
+```{r}
+decoder_h <- layer_dense(units = intermediate_dim)
+decoder_mean <- layer_dense(units = original_dim, activation = "relu")
+h_decoded <- decoder_h(z)
+x_decoded_mean <- decoder_mean(h_decoded)
+
+```
+
+
+```{r}
+# on construit l'autoencoder
+vae <- keras_model(input_enc, x_decoded_mean)
+summary(vae)
+```
+
+
+```{r}
+# generator, from latent space to reconstructed inputs
+
+decoder_input <- layer_input(shape = latent_dim)
+h_decoded_2 <- decoder_h(decoder_input)
+x_decoded_mean_2 <- decoder_mean(h_decoded_2)
+generator <- keras_model(decoder_input, x_decoded_mean_2)
+summary(generator)
+```
+
+
+
+```{r}
+
+vae_loss <- function(x, x_decoded_mean){
+  xent_loss <- (original_dim/1.0)*loss_mean_squared_error(x, x_decoded_mean)
+  kl_loss <- -0.5*k_mean(1 + z_log_var - k_square(z_mean) - k_exp(z_log_var), axis = -1L)
+  xent_loss + kl_loss
+}
+
+vae %>% compile(optimizer = "rmsprop", loss = vae_loss)
+
+```
+
+
+```{r}
+#processing data 
+# Simulation U(n,k) et V(k,m) vérifiant X(n,m)
+
+n = 100
+m = 5000
+seuil = 100
+k  =10
+replace_zeros = function(M, p){
+  n = dim(M)
+  zeros = 0
+
+  for (i in 1:n[1]){
+    for (j in 1:n[2]){
+      if (runif(1) > p){
+        M[i,j] =0
+      }
+    }
+  }
+  return(M)
+}
+
+
+Simul_U = function(k,seuil=10) {
+  U <-matrix(seuil*runif(n*k), nrow = n, ncol = k)
+  return(U)
+}
+
+
+Simul_V = function(k,seuil=10) {
+  V <- seuil*matrix(seuil*runif(m*k), nrow = k, ncol = m)
+  return(V)
+}
+
+
+Simul_data = function(k,seuil=10,p = 1){
+  U = Simul_U(k,seuil)
+  V = Simul_V(k,seuil)
+  U = replace_zeros(U, p)
+  V = replace_zeros(V, p)
+
+  Lambda = U%*%V
+  means_vect = as.vector(Lambda)
+  tmp = matrix(rpois(n*m, means_vect),n ,m)
+  return (tmp )
+}
+
+X_data = Simul_data(10,200)#k et seuil 10,10
+#X_data
+maxi = max(X_data)
+
+if (maxi == 0){
+  maxi = 1
+}
+
+X_train = t(X_data[,1:450])/maxi
+#y_train = t(X_data[1:60,1:450])
+X_val = t(X_data[,451:500])/maxi
+#y_val = t(X_data[1:60,451:500])
+
+```
+
+
+
+```{r}
+vae %>% fit(
+  X_train, X_train,
+  shuffle = TRUE,
+  epochs = epochs,
+  batch_size = batch_size,
+  validation_data = list(X_val, X_val)
+)
+```
+
+```{r}
+dim(X_val)
+```
+
+
+```{r}
+#on test sur une colonne choisi au hasard 
+x_test = t(X_train[40,])
+#x_test = t(X[,2])
+dim(x_test)
+encoded_test = encoder %>% predict(x_test)
+dim(x_test)
+```
+20 et la dimension du vecteur mean 10 (dimension latente) + std de dim 10 (dimension de la couche latente) et ces le vecteur qu on va utiliser pour echantionner suivant la loi Normale 10 echantiollon pour pouvoir faire le découdage et  restituer la colonne en entrée  
+```{r}
+encoded_test = c(encoded_test)
+length(encoded_test) #
+```
+
+```{r}
+#la fonction qui effectue l'echantionnge a partir des valeur de la couche latente
+sampling_manuel= function(vect){
+  meann = vect[1:10]
+  log_std = vect[11:20]
+  epsilon = rnorm(10)
+  zsample = meann + exp(log_std/2)*epsilon
+  return(zsample)
+}
+
+```
+
+
+
+```{r}
+
+encoded_test2 = sampling_manuel(encoded_test)
+decode = generator%>%predict(t(encoded_test2))
+length(decode) #100
+```
+
+
+
+
+
+```{r}
+plot(decode,x_test,xlab = "colone_decode",ylab="colone_test",main="sparsity = 0.5 ")
+```
+
+le plot de colone decode et colonne test suit approximativement  l 'allure de la droite y=x ce qui est un bon indicateur sur la qualité de notre autoencodeur 
+
+des  histogrames pour comparer les distrubition d'une colone test avant et apres passage par l'AUTOENCODEUR VARIATIONEL
+```{r}
+hist(decode,xlab = "x_decode",main = "Histogram du vecteur decodé")
+```
+
+
+
+```{r}
+hist(x_test,main ="histogram du vecteur test ")
+```
+
+
+
+
+```{r}
+#cette fonction va nous servir aprés pour tracer des courbe 
+#il prend un matrice en entre et fait passer ses colonnes par l'autoencodeur 
+#pour pouvoir les comparer apres avec les colonnes initiales 
+construct =  function(M){
+  #il encode et decode apres tous les colonees de la matrice M (argument)
+  mat = matrix(0,nrow = nrow(M),ncol = ncol(M))
+  for (i in 1:ncol(M)){
+    col_test = c(M[,i])
+    encoded_t = encoder %>% predict(t(col_test))
+    z_sample = sampling_manuel(t(encoded_t))
+    decode = generator%>%predict(t(encoded_test2))
+    mat[,i] = decode
+    
+  }
+  return (mat)
+}
+```
+
+```{r}
+
+dim(t(X_val))
+#construct(t(X_val))
+```
+
+```{r}
+norm = function(M){
+  res = sqrt(sum(M*M))
+  return(res)
+}
+
+
+#la fonction utilisée pour normaliser les lignes de cette matrice 
+process_mat = function(M){
+  rows = nrow(M)
+  for(row in 1:rows){
+    if (norm(M[row,]) == 0){
+      M[row,]= M[row,]
+    }else{
+      M[row,]= M[row,]/norm(M[row,])
+    }
+  }
+  return (M)
+}
+
+
+#la fonction d'ordonnancement des colonnes 
+permutation = function(U){
+  list_column = matrix(0, nrow=ncol(U), ncol=2)
+  for (j in 1:ncol(U)){
+    list_column[j,1] = norm(U[,j])
+    list_column[j,2] = j
+  }
+  list_column = list_column[order(list_column[,1]),][,2]
+  U = U[, list_column]
+  return(U)
+}
+
+
+#la nouvelle distance qui respecte l'ordonnancement et la normalisation
+distance_error = function(A, B) {
+  A = process_mat(A) 
+  A = permutation(A)
+  B= process_mat(B)
+  B = permutation(B)
+  sizee = nrow(A)*ncol(A) 
+  return(sqrt((sum((A-B)**2)))/sizee)
+}
+
+
+```
+
+```{r}
+
+sparse =seq(0.1,1,0.01)
+sparse
+distance_sparse =c()
+for (pp in sparse){
+  X_tmp = Simul_data(k,p = pp)[1:100,1:10] #number of colonnes 
+  if (max(X_tmp)!=0){
+    X_tmp = X_tmp/max(X_tmp)  }
+  sizee = nrow(X_tmp)*ncol(X_tmp)
+  res = construct(X_tmp)
+  distance_sparse = c(distance_sparse,sqrt((sum((X_tmp-res)**2)))/sizee)
+}
+```
+
+```{r}
+plot(sparse,distance_sparse,main="distance entre les données initiales et les données restituées en fonction de la sparsité ")
+#construct(t(X_train))
+```
+
+
